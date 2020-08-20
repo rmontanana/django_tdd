@@ -1,3 +1,4 @@
+import hashlib
 from django.db import models
 from django.urls import reverse
 from django.template.defaultfilters import slugify
@@ -42,3 +43,9 @@ class Comment(models.Model):
 
     def __str__(self):
         return self.body
+
+    def gravatar_url(self):
+        # Get the md5 hash of the email address
+        md5 = hashlib.md5(self.email.encode())
+        digest = md5.hexdigest()
+        return 'http://www.gravatar.com/avatar/{}'.format(digest)
