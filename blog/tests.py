@@ -1,7 +1,9 @@
+import datetime
 from django.test import TestCase
 from django_webtest import WebTest
 from django.contrib.auth import get_user_model
 from django.template import Template, Context
+from django.template.defaultfilters import slugify
 from .models import Entry, Comment
 from .forms import CommentForm
 
@@ -72,14 +74,14 @@ class EntryViewTest(WebTest):
 
     def test_show_no_comments_in_entry_detail(self):
         response = self.client.get(self.entry.get_absolute_url())
-        self.assertContains(response, 'No comments yet.')
+        self.assertContains(response, "No comments yet.")
 
     def test_show_comments_in_entry_detail(self):
         entry = Entry.objects.create(title="My entry title", author=self.user)
-        Comment.objects.create(entry=entry, body='Comment 1')
-        Comment.objects.create(entry=self.entry, body='Comment 2')
+        Comment.objects.create(entry=entry, body="Comment 1")
+        Comment.objects.create(entry=self.entry, body="Comment 2")
         response = self.client.get(self.entry.get_absolute_url())
-        self.assertContains(response, 'Comment 2')
+        self.assertContains(response, "Comment 2")
 
     def test_view_page(self):
         page = self.app.get(self.entry.get_absolute_url())
@@ -92,11 +94,35 @@ class EntryViewTest(WebTest):
 
     def test_form_success(self):
         page = self.app.get(self.entry.get_absolute_url())
-        page.form['name'] = "Phillip"
-        page.form['email'] = "phillip@example.com"
-        page.form['body'] = "Test comment body."
+        page.form["name"] = "Phillip"
+        page.form["email"] = "phillip@example.com"
+        page.form["body"] = "Test comment body."
         page = page.form.submit()
         self.assertRedirects(page, self.entry.get_absolute_url())
+
+    def test_url(self):
+        title = "This is my test title"
+        today = datetime.date.today()
+        entry = Entry.objects.create(title=title, body="body", author=self.user)
+        slug = slugify(title)
+        url = "/{year}/{month}/{day}/{pk}-{slug}/".format(
+            year=today.year, month=today.month, day=today.day, slug=slug, pk=entry.pk,
+        )
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, template_name="blog/entry_detail.html")
+
+    def test_misdated_url(self):
+        entry = Entry.objects.create(title="title", body="body", author=self.user)
+        url = "/0000/00/00/{0}-misdated/".format(entry.id)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, template_name="blog/entry_detail.html")
+
+    def test_invalid_url(self):
+        entry = Entry.objects.create(title="title", body="body", author=self.user)
+        response = self.client.get("/0000/00/00/0-invalid/")
+        self.assertEqual(response.status_code, 404)
 
 
 class CommentModelTest(TestCase):
@@ -104,10 +130,15 @@ class CommentModelTest(TestCase):
         comment = Comment(body="My comment body")
         self.assertEqual(str(comment), "My comment body")
 
+    def test_gravatar_url(self):
+        comment = Comment(body="My comment body", email="email@example.com")
+        expected = "http://www.gravatar.com/avatar/5658ffccee7f0ebfda2b226238b1eb6e"
+        self.assertEqual(comment.gravatar_url(), expected)
+
 
 class CommentFormTest(TestCase):
     def setUp(self):
-        user = get_user_model().objects.create_user('zoidberg')
+        user = get_user_model().objects.create_user("zoidberg")
         self.entry = Entry.objects.create(author=user, title="My entry title")
 
     def test_init(self):
@@ -118,11 +149,14 @@ class CommentFormTest(TestCase):
             CommentForm()
 
     def test_valid_data(self):
-        form = CommentForm({
-            'name': "Turanga Leela",
-            'email': "leela@example.com",
-            'body': "Hi there",
-        }, entry=self.entry)
+        form = CommentForm(
+            {
+                "name": "Turanga Leela",
+                "email": "leela@example.com",
+                "body": "Hi there",
+            },
+            entry=self.entry,
+        )
         self.assertTrue(form.is_valid())
         comment = form.save()
         self.assertEqual(comment.name, "Turanga Leela")
@@ -133,18 +167,22 @@ class CommentFormTest(TestCase):
     def test_blank_data(self):
         form = CommentForm({}, entry=self.entry)
         self.assertFalse(form.is_valid())
-        self.assertEqual(form.errors, {
-            'name': ['This field is required.'],
-            'email': ['This field is required.'],
-            'body': ['This field is required.'],
-        })
+        self.assertEqual(
+            form.errors,
+            {
+                "name": ["This field is required."],
+                "email": ["This field is required."],
+                "body": ["This field is required."],
+            },
+        )
+
 
 class EntryHistoryTagTest(TestCase):
 
     TEMPLATE = Template("{% load blog_tags %} {% entry_history %}")
 
     def setUp(self):
-        self.user = get_user_model().objects.create(username='zoidberg')
+        self.user = get_user_model().objects.create(username="zoidberg")
 
     def test_entry_shows_up(self):
         entry = Entry.objects.create(author=self.user, title="My entry title")
